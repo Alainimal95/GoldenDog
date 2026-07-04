@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: afed54a239594b8abd631a8047a54987, type: 3}
+  m_Name: TestProfile
+  m_EditorClassIdentifier: 
+  PackageName: Test_LV
+  Author: Hypernova
+  Version: 0.0.1
+  Icon: {fileID: 2800000, guid: 4c773770c249cb84e9e105a3633d7960, type: 3}
+  ReadMe: {fileID: 102900000, guid: 220cdd589551c36478f6044c4df1ed6c, type: 3}
+  Changelog: {fileID: 0}
+  WebsiteURL: 
+  Description: 
+  AdditionalDependencies: []
+  StripNamespaces: 1
+  AdditionalNamespaces: []
+  ApplyHarmonyPatches: 1
+  BuildItems:
+  - {fileID: 11400000, guid: a75cf4e63e468f74598943afdd309295, type: 2}
+  BuildAction: 1
+  OutputProfile: C:/Users/alain/AppData/Roaming/r2modmanPlus-local/H3VR/profiles/AgentSecretSausage

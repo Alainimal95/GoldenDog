@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bb9ca90819b143909ef3b06721bb54cc, type: 3}
+  m_Name: TestAtlas
+  m_EditorClassIdentifier: 
+  SceneFile: {fileID: 102900000, guid: f92af74679fcf82458d95379875b4169, type: 3}
+  SceneName: Test
+  GameMode: sandbox
+  DisplayMode: sandbox
+  Thumbnail: {fileID: 2800000, guid: 4c773770c249cb84e9e105a3633d7960, type: 3}
+  Author: Hypernova
+  Description: Test level
