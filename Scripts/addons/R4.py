@@ -1,10 +1,10 @@
 bl_info = {
-    "name": "Restore Rotation Values",
+    "name": "R4: Rejoin, Restore, Reset, Recenter",
     "author": "You",
-    "version": (1, 0, 0),
+    "version": (1, 0, 1),
     "blender": (5, 0, 1),
-    "location": "View3D > Sidebar > Rotation",
-    "description": "Reconstruct XYZ rotation from a Forward/Up vector after Apply Rotation",
+    "location": "View3D > Sidebar > R4",
+    "description": "Merge verts/objects, restore rotation, reset transforms, and recenter origin at base",
     "category": "Object",
 }
 
@@ -15,16 +15,17 @@ from mathutils import Vector, Matrix
 
 
 # ---------------------------------------------------------------------------
-# Core math / mesh-reading helpers (unchanged from the standalone script)
+# Core math / mesh-reading helpers
 # ---------------------------------------------------------------------------
 
+# convert normal to world space
 def _normal_to_world(obj, local_normal):
     normal_matrix = obj.matrix_world.to_3x3().inverted_safe().transposed()
     return (normal_matrix @ local_normal).normalized()
 
-
+# use selected geometry to capture a vector (approach dependant on selection type)
 def get_vector_from_selection(obj):
-    """Read the current Edit Mode selection -> normalized world-space vector."""
+    #Read the current edit mode selection -> normalized world-space vector
     bm = bmesh.from_edit_mesh(obj.data)
     sel_faces = [f for f in bm.faces if f.select]
     sel_edges = [e for e in bm.edges if e.select]
@@ -32,10 +33,7 @@ def get_vector_from_selection(obj):
 
     # Checked in order of specificity (face > edge > 3-vert), since Blender's
     # selection "flush" auto-marks edges/faces selected whenever all of their
-    # verts are selected -- e.g. 3 verts joined by 2 edges (an open path, no
-    # face) will show up with sel_edges == 2. Using elif-by-priority instead
-    # of requiring the *other* categories to be empty avoids false rejections
-    # like that.
+    # verts are selected
     if len(sel_faces) == 1:
         return _normal_to_world(obj, sel_faces[0].normal.copy())
 
@@ -72,23 +70,7 @@ def get_vector_from_selection(obj):
         f"(got {len(sel_faces)} faces, {len(sel_edges)} edges, {len(sel_verts)} verts)."
     )
 
-
-AXIS_ITEMS = [
-    ('POS_X', "+X", "Current +X axis"),
-    ('NEG_X', "-X", "Current -X axis"),
-    ('POS_Y', "+Y", "Current +Y axis"),
-    ('NEG_Y', "-Y", "Current -Y axis"),
-    ('POS_Z', "+Z", "Current +Z axis"),
-    ('NEG_Z', "-Z", "Current -Z axis"),
-]
-
-_AXIS_VECTORS = {
-    'POS_X': Vector((1.0, 0.0, 0.0)), 'NEG_X': Vector((-1.0, 0.0, 0.0)),
-    'POS_Y': Vector((0.0, 1.0, 0.0)), 'NEG_Y': Vector((0.0, -1.0, 0.0)),
-    'POS_Z': Vector((0.0, 0.0, 1.0)), 'NEG_Z': Vector((0.0, 0.0, -1.0)),
-}
-
-
+#reconstruct the rotation
 def build_rotation_matrix(forward, up, priority='FORWARD'):
     forward = forward.normalized()
     up = up.normalized()
@@ -114,47 +96,55 @@ def build_rotation_matrix(forward, up, priority='FORWARD'):
     ))
     return rot3.to_4x4()
 
-
+#restore rotation values using a parent empty to null current orientation
 def restore_rotation(obj, priority='FORWARD'):
-    forward = Vector(obj["mrr_forward"])
-    up = Vector(obj["mrr_up"])
+    #read custom properties and build the rot matrix
+    forward = Vector(obj["r4_forward"])
+    up = Vector(obj["r4_up"])
     rot_matrix = build_rotation_matrix(forward, up, priority=priority)
-
+    
+    #return to object mode
     if obj.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
 
     if obj.data.users > 1:
         obj.data = obj.data.copy()
-
+    
+    #get selected and active objects
     view_layer = bpy.context.view_layer
     original_active = view_layer.objects.active
     original_selected = list(bpy.context.selected_objects)
-
-    empty = bpy.data.objects.new("MRR_TEMP_EMPTY", None)
+    
+    #add and align empty (will become parent)
+    empty = bpy.data.objects.new("R4_TEMP_EMPTY", None)
     bpy.context.collection.objects.link(empty)
     empty.matrix_world = Matrix.Translation(obj.matrix_world.translation) @ rot_matrix
-
+    
+    #clear selection, make empty parent of obj
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     empty.select_set(True)
     view_layer.objects.active = empty
     bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
-
+    
+    #zero out rotation on empty
     empty.rotation_euler = (0.0, 0.0, 0.0)
-
+    
+    #select target obj only 
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     view_layer.objects.active = obj
-    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-
+    
+    #unparent(keep), apply xforms, rotate back to position
+    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')    
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
-
     obj.rotation_euler = rot_matrix.to_euler(obj.rotation_mode)
 
+    #remove empty/custom properties and restore selection
     bpy.data.objects.remove(empty, do_unlink=True)
-    del obj["mrr_forward"]
-    del obj["mrr_up"]
-
+    del obj["r4_forward"]
+    del obj["r4_up"]
+    
     bpy.ops.object.select_all(action='DESELECT')
     for o in original_selected:
         o.select_set(True)
@@ -165,10 +155,11 @@ def restore_rotation(obj, priority='FORWARD'):
 # Operators
 # ---------------------------------------------------------------------------
 
-class MRR_OT_set_forward(bpy.types.Operator):
-    bl_idname = "mrr.set_forward"
+#define forward vector
+class R4_OT_set_forward(bpy.types.Operator):
+    bl_idname = "r4.set_forward"
     bl_label = "Set Forward From Selection"
-    bl_description = "Store the current Edit Mode selection as the Forward (+Y) vector"
+    bl_description = "Store the current edit mode selection as the forward (+Y) vector"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -183,15 +174,15 @@ class MRR_OT_set_forward(bpy.types.Operator):
         except RuntimeError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-        obj["mrr_forward"] = tuple(v)
+        obj["r4_forward"] = tuple(v)
         self.report({'INFO'}, f"Forward vector set: ({v.x:.3f}, {v.y:.3f}, {v.z:.3f})")
         return {'FINISHED'}
 
-
-class MRR_OT_set_up(bpy.types.Operator):
-    bl_idname = "mrr.set_up"
+#define up vector
+class R4_OT_set_up(bpy.types.Operator):
+    bl_idname = "r4.set_up"
     bl_label = "Set Up From Selection"
-    bl_description = "Store the current Edit Mode selection as the Up (+Z) vector"
+    bl_description = "Store the current edit mode selection as the up (+Z) vector"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -206,13 +197,13 @@ class MRR_OT_set_up(bpy.types.Operator):
         except RuntimeError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-        obj["mrr_up"] = tuple(v)
+        obj["r4_up"] = tuple(v)
         self.report({'INFO'}, f"Up vector set: ({v.x:.3f}, {v.y:.3f}, {v.z:.3f})")
         return {'FINISHED'}
 
-
-class MRR_OT_clear_vectors(bpy.types.Operator):
-    bl_idname = "mrr.clear_vectors"
+#clear captured vectors
+class R4_OT_clear_vectors(bpy.types.Operator):
+    bl_idname = "r4.clear_vectors"
     bl_label = "Clear Stored Vectors"
     bl_description = "Discard the stored Forward/Up vectors on this object"
     bl_options = {'REGISTER', 'UNDO'}
@@ -220,17 +211,17 @@ class MRR_OT_clear_vectors(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return obj is not None and ("mrr_forward" in obj or "mrr_up" in obj)
+        return obj is not None and ("r4_forward" in obj or "r4_up" in obj)
 
     def execute(self, context):
         obj = context.object
-        obj.pop("mrr_forward", None)
-        obj.pop("mrr_up", None)
+        obj.pop("r4_forward", None)
+        obj.pop("r4_up", None)
         return {'FINISHED'}
 
-
-class MRR_OT_restore_rotation(bpy.types.Operator):
-    bl_idname = "mrr.restore_rotation"
+#restore rotation
+class R4_OT_restore_rotation(bpy.types.Operator):
+    bl_idname = "r4.restore_rotation"
     bl_label = "Restore Rotation"
     bl_description = "Reconstruct the object's rotation from the stored Forward/Up vectors"
     bl_options = {'REGISTER', 'UNDO'}
@@ -241,13 +232,13 @@ class MRR_OT_restore_rotation(bpy.types.Operator):
         return (
             obj is not None
             and obj.type == 'MESH'
-            and "mrr_forward" in obj
-            and "mrr_up" in obj
+            and "r4_forward" in obj
+            and "r4_up" in obj
         )
 
     def execute(self, context):
         obj = context.object
-        priority = context.scene.mrr_priority
+        priority = context.scene.r4_priority
         try:
             restore_rotation(obj, priority=priority)
         except (RuntimeError, ValueError) as e:
@@ -257,51 +248,16 @@ class MRR_OT_restore_rotation(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class MRR_OT_remap_axes(bpy.types.Operator):
-    bl_idname = "mrr.remap_axes"
-    bl_label = "Apply Axis Remap"
-    bl_description = (
-        "Reassign which of the object's CURRENT local axes point Forward/Up, "
-        "keeping the object's visual orientation unchanged"
-    )
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        obj = context.object
-        return obj is not None and obj.type == 'MESH'
-
-    def execute(self, context):
-        obj = context.object
-        scene = context.scene
-
-        rot3 = obj.matrix_world.to_3x3()
-        forward = (rot3 @ _AXIS_VECTORS[scene.mrr_remap_forward]).normalized()
-        up = (rot3 @ _AXIS_VECTORS[scene.mrr_remap_up]).normalized()
-
-        obj["mrr_forward"] = tuple(forward)
-        obj["mrr_up"] = tuple(up)
-
-        try:
-            restore_rotation(obj, priority=scene.mrr_priority)
-        except (RuntimeError, ValueError) as e:
-            self.report({'ERROR'}, str(e))
-            return {'CANCELLED'}
-
-        self.report({'INFO'}, f"Axes remapped on '{obj.name}'")
-        return {'FINISHED'}
-
-
 # ---------------------------------------------------------------------------
 # Panel
 # ---------------------------------------------------------------------------
 
-class MRR_PT_panel(bpy.types.Panel):
-    bl_label = "Restore Rotation"
-    bl_idname = "MRR_PT_panel"
+class R4_PT_panel(bpy.types.Panel):
+    bl_label = "R4: Rejoin, Restore, Reset, Recenter"
+    bl_idname = "R4_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Rotation"
+    bl_category = "R4"
 
     def draw(self, context):
         layout = self.layout
@@ -311,12 +267,14 @@ class MRR_PT_panel(bpy.types.Panel):
             layout.label(text="Select a mesh object", icon='INFO')
             return
 
-        fwd = obj.get("mrr_forward")
-        up = obj.get("mrr_up")
+        layout.label(text="Restore Rotation", icon='ORIENTATION_GIMBAL')
+
+        fwd = obj.get("r4_forward")
+        up = obj.get("r4_up")
 
         box = layout.box()
         box.label(text="1. Forward Vector (+Y)")
-        box.operator("mrr.set_forward", icon='EMPTY_SINGLE_ARROW')
+        box.operator("r4.set_forward", icon='EMPTY_SINGLE_ARROW')
         if fwd:
             box.label(text=f"({fwd[0]:.3f}, {fwd[1]:.3f}, {fwd[2]:.3f})")
         else:
@@ -324,7 +282,7 @@ class MRR_PT_panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="2. Up Vector (+Z)")
-        box.operator("mrr.set_up", icon='EMPTY_SINGLE_ARROW')
+        box.operator("r4.set_up", icon='EMPTY_SINGLE_ARROW')
         if up:
             box.label(text=f"({up[0]:.3f}, {up[1]:.3f}, {up[2]:.3f})")
         else:
@@ -332,19 +290,11 @@ class MRR_PT_panel(bpy.types.Panel):
 
         layout.separator()
         layout.label(text="Priority if not perpendicular:")
-        layout.prop(context.scene, "mrr_priority", expand=True)
+        layout.prop(context.scene, "r4_priority", expand=True)
 
         layout.separator()
-        layout.operator("mrr.restore_rotation", icon='ORIENTATION_GIMBAL')
-        layout.operator("mrr.clear_vectors", icon='TRASH')
-
-        box = layout.box()
-        box.label(text="3. Fix / Remap Axes")
-        box.label(text="Reassign which CURRENT axis is Forward/Up:")
-        col = box.column(align=True)
-        col.prop(context.scene, "mrr_remap_forward", text="Forward")
-        col.prop(context.scene, "mrr_remap_up", text="Up")
-        box.operator("mrr.remap_axes", icon='FILE_REFRESH')
+        layout.operator("r4.restore_rotation", icon='ORIENTATION_GIMBAL')
+        layout.operator("r4.clear_vectors", icon='TRASH')
 
 
 # ---------------------------------------------------------------------------
@@ -352,12 +302,11 @@ class MRR_PT_panel(bpy.types.Panel):
 # ---------------------------------------------------------------------------
 
 classes = (
-    MRR_OT_set_forward,
-    MRR_OT_set_up,
-    MRR_OT_clear_vectors,
-    MRR_OT_restore_rotation,
-    MRR_OT_remap_axes,
-    MRR_PT_panel,
+    R4_OT_set_forward,
+    R4_OT_set_up,
+    R4_OT_clear_vectors,
+    R4_OT_restore_rotation,
+    R4_PT_panel,
 )
 
 
@@ -365,7 +314,7 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    bpy.types.Scene.mrr_priority = bpy.props.EnumProperty(
+    bpy.types.Scene.r4_priority = bpy.props.EnumProperty(
         name="Priority",
         description="Which vector stays exact when Forward and Up aren't perpendicular",
         items=[
@@ -375,24 +324,9 @@ def register():
         default='FORWARD',
     )
 
-    bpy.types.Scene.mrr_remap_forward = bpy.props.EnumProperty(
-        name="Remap Forward",
-        description="Which of the object's current local axes should become the new Forward",
-        items=AXIS_ITEMS,
-        default='POS_Y',
-    )
-    bpy.types.Scene.mrr_remap_up = bpy.props.EnumProperty(
-        name="Remap Up",
-        description="Which of the object's current local axes should become the new Up",
-        items=AXIS_ITEMS,
-        default='POS_Z',
-    )
-
 
 def unregister():
-    del bpy.types.Scene.mrr_remap_up
-    del bpy.types.Scene.mrr_remap_forward
-    del bpy.types.Scene.mrr_priority
+    del bpy.types.Scene.r4_priority
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
