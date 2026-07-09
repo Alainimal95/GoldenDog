@@ -1,7 +1,7 @@
 bl_info = {
-    "name": "R5: Rejoin, Restore, Reset, Recenter",
+    "name": "R5: Rejoin, Recenter, Restore, Reset, Rebase",
     "author": "You",
-    "version": (1, 0, 2),
+    "version": (1, 0, 3),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > R5",
     "description": "Merge verts/objects, restore rotation, reset transforms, and recenter origin at base",
@@ -112,10 +112,14 @@ def rejoin():
     orig_sel = list(bpy.context.selected_objects)
         
     for s in orig_sel:
-        # clear selection select current
+        if s.type != 'MESH':
+            continue  # skip non-mesh objects (lights, empties, cameras, etc.)
+
+        # clear selection, select and activate current
         bpy.ops.object.select_all(action='DESELECT')
         s.select_set(True)
-    
+        view_layer.objects.active = s
+
         # enter edit mode, select all verts
         bpy.ops.object.mode_set(mode = 'EDIT')
         bpy.ops.mesh.select_mode(type="VERT")
@@ -127,8 +131,9 @@ def rejoin():
     
     # combine objs under original active
     bpy.ops.object.select_all(action='DESELECT')
-    for o in original_selected:
-        o.select_set(True)
+    for o in orig_sel:
+        if o.type == 'MESH':
+            o.select_set(True)
     view_layer.objects.active = orig_act
     bpy.ops.object.join()
 
@@ -146,6 +151,12 @@ def recenter_all():
         
         #set origin to geo
         bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
+
+    # restore original selection
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in orig_sel:
+        o.select_set(True)
+    view_layer.objects.active = orig_act
 
 # restore rotation values using a parent empty to null current orientation
 def restore_rotation(obj, priority='FORWARD'):
@@ -217,15 +228,21 @@ def rebase():
     # capture selection
     sel = bpy.context.selected_objects
 
-    # find lowest point
+    # find lowest point and drop/raise each object to sit exactly on the ground
     for s in sel:
-        # get bbox ptmin z location
-        corners = s.bound_box
-        low = min(c[2] for c in corners)
-     
-        # transform up by abs of that amnt
-        s.location.z += abs(low)
-    
+        # bound_box is in local space -- transform corners to world space
+        # before comparing Z, so this still works if the object carries
+        # rotation/scale (e.g. right after a Restore Rotation)
+        corners_world = [s.matrix_world @ Vector(c) for c in s.bound_box]
+        low = min(c.z for c in corners_world)
+
+        # move by exactly -low: brings it up if low < 0, down if low > 0
+        s.location.z -= low
+
+        # apply requires single-user mesh data, same as restore_rotation()
+        if s.data.users > 1:
+            s.data = s.data.copy()
+
     # apply transforms
     bpy.ops.object.transform_apply(location=True)
 
@@ -241,7 +258,7 @@ def rebase():
 # 
 
 class R5_OT_rejoin(bpy.types.Operator):
-    bl_idname = "R5.rejoin"
+    bl_idname = "r5.rejoin"
     bl_label = "Merge And Combine"
     bl_description = "Merge vertices of all selected objects and combine with active object"
     bl_options = {'REGISTER', 'UNDO'}
@@ -265,7 +282,7 @@ class R5_OT_rejoin(bpy.types.Operator):
 # 
 
 class R5_OT_recenter_all(bpy.types.Operator):
-    bl_idname = "R5.recenter_all"
+    bl_idname = "r5.recenter_all"
     bl_label = "Recenter Origin(s)"
     bl_description = "Set origins of each selected object to the geometry's center"
     bl_options = {'REGISTER', 'UNDO'}
@@ -290,7 +307,7 @@ class R5_OT_recenter_all(bpy.types.Operator):
 
 # define forward vector
 class R5_OT_set_forward(bpy.types.Operator):
-    bl_idname = "R5.set_forward"
+    bl_idname = "r5.set_forward"
     bl_label = "Set Forward From Selection"
     bl_description = "Store the current edit mode selection as the forward (+Y) vector"
     bl_options = {'REGISTER', 'UNDO'}
@@ -313,7 +330,7 @@ class R5_OT_set_forward(bpy.types.Operator):
 
 # define up vector
 class R5_OT_set_up(bpy.types.Operator):
-    bl_idname = "R5.set_up"
+    bl_idname = "r5.set_up"
     bl_label = "Set Up From Selection"
     bl_description = "Store the current edit mode selection as the up (+Z) vector"
     bl_options = {'REGISTER', 'UNDO'}
@@ -336,7 +353,7 @@ class R5_OT_set_up(bpy.types.Operator):
 
 # clear captured vectors
 class R5_OT_clear_vectors(bpy.types.Operator):
-    bl_idname = "R5.clear_vectors"
+    bl_idname = "r5.clear_vectors"
     bl_label = "Clear Stored Vectors"
     bl_description = "Discard the stored Forward/Up vectors on this object"
     bl_options = {'REGISTER', 'UNDO'}
@@ -354,7 +371,7 @@ class R5_OT_clear_vectors(bpy.types.Operator):
 
 # restore rotation
 class R5_OT_restore_rotation(bpy.types.Operator):
-    bl_idname = "R5.restore_rotation"
+    bl_idname = "r5.restore_rotation"
     bl_label = "Restore Rotation"
     bl_description = "Reconstruct the object's rotation from the stored Forward/Up vectors"
     bl_options = {'REGISTER', 'UNDO'}
@@ -384,7 +401,7 @@ class R5_OT_restore_rotation(bpy.types.Operator):
 # reset transforms
 # 
 class R5_OT_reset_xforms(bpy.types.Operator):
-    bl_idname = "R5.reset_xforms"
+    bl_idname = "r5.reset_xforms"
     bl_label = "Reset All Transforms"
     bl_description = "Zero out location and rotation, then set scale to 1 on each axis"
     bl_options = {'REGISTER', 'UNDO'}
@@ -407,7 +424,7 @@ class R5_OT_reset_xforms(bpy.types.Operator):
 # rebase
 # 
 class R5_OT_rebase(bpy.types.Operator):
-    bl_idname = "R5.rebase"
+    bl_idname = "r5.rebase"
     bl_label = "Rebase"
     bl_description = "Set the origin to the base of the geometry"
     bl_options = {'REGISTER', 'UNDO'}
@@ -447,11 +464,11 @@ class R5_PT_panel(bpy.types.Panel):
             return
         # merge and combine (rejoin)
         layout.label(text="Rejoin", icon='FULLSCREEN_EXIT')
-        layout.operator("R5.rejoin", icon='FULLSCREEN_EXIT')
+        layout.operator("r5.rejoin", icon='FULLSCREEN_EXIT')
         
         # recenter origin
         layout.label(text="Recenter Origin", icon='LIGHTPROBE_SPHERE')
-        layout.operator("R5.recenter_all", icon='LIGHTPROBE_SPHERE')
+        layout.operator("r5.recenter_all", icon='LIGHTPROBE_SPHERE')
         
         # restore rotation
         layout.label(text="Restore Rotation", icon='ORIENTATION_GIMBAL')
@@ -461,7 +478,7 @@ class R5_PT_panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="1. Forward Vector (+Y)")
-        box.operator("R5.set_forward", icon='EMPTY_SINGLE_ARROW')
+        box.operator("r5.set_forward", icon='EMPTY_SINGLE_ARROW')
         if fwd:
             box.label(text=f"({fwd[0]:.3f}, {fwd[1]:.3f}, {fwd[2]:.3f})")
         else:
@@ -469,7 +486,7 @@ class R5_PT_panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="2. Up Vector (+Z)")
-        box.operator("R5.set_up", icon='EMPTY_SINGLE_ARROW')
+        box.operator("r5.set_up", icon='EMPTY_SINGLE_ARROW')
         if up:
             box.label(text=f"({up[0]:.3f}, {up[1]:.3f}, {up[2]:.3f})")
         else:
@@ -480,16 +497,16 @@ class R5_PT_panel(bpy.types.Panel):
         layout.prop(context.scene, "R5_priority", expand=True)
 
         layout.separator()
-        layout.operator("R5.restore_rotation", icon='ORIENTATION_GIMBAL')
-        layout.operator("R5.clear_vectors", icon='TRASH')
+        layout.operator("r5.restore_rotation", icon='ORIENTATION_GIMBAL')
+        layout.operator("r5.clear_vectors", icon='TRASH')
         
         # reset transforms
         layout.label(text="Reset Transforms", icon='RECOVER_LAST')
-        layout.operator("R5.reset_xforms", icon='RECOVER_LAST')
+        layout.operator("r5.reset_xforms", icon='RECOVER_LAST')
         
         # rebase
         layout.label(text="Rebase", icon='IMPORT')
-        layout.operator("R5.rebase", icon='IMPORT')
+        layout.operator("r5.rebase", icon='IMPORT')
 
 
 # ---------------------------------------------------------------------------
