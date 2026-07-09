@@ -1,7 +1,7 @@
 bl_info = {
-    "name": "R5: Rejoin, Recenter, Restore, Reset, Rebase",
+    "name": "R5: Rejoin, Restore, Reset, Recenter",
     "author": "You",
-    "version": (1, 0, 3),
+    "version": (1, 1, 1),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > R5",
     "description": "Merge verts/objects, restore rotation, reset transforms, and recenter origin at base",
@@ -174,8 +174,8 @@ def restore_rotation(obj, priority='FORWARD'):
     
     # get selected and active objects
     view_layer = bpy.context.view_layer
-    original_active = view_layer.objects.active
-    original_selected = list(bpy.context.selected_objects)
+    orig_act = view_layer.objects.active
+    orig_sel = list(bpy.context.selected_objects)
     
     # add and align empty (will become parent)
     empty = bpy.data.objects.new("R5_TEMP_EMPTY", None)
@@ -208,9 +208,9 @@ def restore_rotation(obj, priority='FORWARD'):
     del obj["R5_up"]
     
     bpy.ops.object.select_all(action='DESELECT')
-    for o in original_selected:
+    for o in orig_sel:
         o.select_set(True)
-    view_layer.objects.active = original_active
+    view_layer.objects.active = orig_act
 
 # reset all xforms
 def reset_all_xforms():
@@ -227,6 +227,14 @@ def reset_all_xforms():
 def rebase():
     # capture selection
     sel = bpy.context.selected_objects
+
+    # force an update so matrix_world/bound_box reflect any transform
+    # changes made via direct property assignment just before this call
+    # (e.g. reset_all_xforms) -- those don't go through an operator, so
+    # without this, bound_box can still be evaluated against the OLD
+    # transform, throwing the Z shift off (can even land it upside-down
+    # relative to the ground plane)
+    bpy.context.view_layer.update()
 
     # find lowest point and drop/raise each object to sit exactly on the ground
     for s in sel:
@@ -246,7 +254,13 @@ def rebase():
     # apply transforms
     bpy.ops.object.transform_apply(location=True)
 
-# R5 (execute all)
+# R5 (execute all): run the full pipeline top to bottom on one object
+def run_all(obj, priority='FORWARD'):
+    rejoin()
+    recenter_all()
+    restore_rotation(obj, priority=priority)
+    reset_all_xforms()
+    rebase()
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +458,42 @@ class R5_OT_rebase(bpy.types.Operator):
         return {'FINISHED'}
 
 
+#
+# run all
+#
+class R5_OT_run_all(bpy.types.Operator):
+    bl_idname = "r5.run_all"
+    bl_label = "Run Full Workflow"
+    bl_description = (
+        "Run the entire pipeline in order on the active object: Rejoin, "
+        "Recenter Origin, Restore Rotation, Reset Transforms, Rebase. "
+        "Requires the Forward/Up vectors to already be captured"
+    )
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        return (
+            obj is not None
+            and obj.type == 'MESH'
+            and obj.mode == 'OBJECT'
+            and "R5_forward" in obj
+            and "R5_up" in obj
+        )
+
+    def execute(self, context):
+        obj = context.object
+        priority = context.scene.R5_priority
+        try:
+            run_all(obj, priority=priority)
+        except (RuntimeError, ValueError) as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+        self.report({'INFO'}, f"Full workflow completed on '{obj.name}'")
+        return {'FINISHED'}
+
+
 # ---------------------------------------------------------------------------
 # Panel
 # ---------------------------------------------------------------------------
@@ -462,6 +512,11 @@ class R5_PT_panel(bpy.types.Panel):
         if obj is None or obj.type != 'MESH':
             layout.label(text="Select a mesh object", icon='INFO')
             return
+
+        # run everything, top to bottom
+        layout.operator("r5.run_all", icon='PLAY')
+        layout.separator()
+
         # merge and combine (rejoin)
         layout.label(text="Rejoin", icon='FULLSCREEN_EXIT')
         layout.operator("r5.rejoin", icon='FULLSCREEN_EXIT')
@@ -522,6 +577,7 @@ classes = (
     R5_OT_restore_rotation,
     R5_OT_reset_xforms,
     R5_OT_rebase,
+    R5_OT_run_all,
     R5_PT_panel,
 )
 
