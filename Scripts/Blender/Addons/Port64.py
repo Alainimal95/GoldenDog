@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Port64",
     "author": "Hypernova",
-    "version": (1, 1, 1),
+    "version": (1, 1, 2),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > Port64",
     "description": "Toolset for processing assets imported from project 64",
@@ -155,24 +155,20 @@ def draw_callback(op, context):
 # consolidate/designate materials
 #
 
-# get slot 0 material
-"""
-TODO: may have to add search functionality here if
-used on objs with multiple mat slots.
-For now, this is not the intended use
-"""
-def get_mtl(obj):
-    if not obj.material_slots:
+# get material for a given slot (defaults to slot 0 for callers that don't care)
+def get_mtl(obj, slot_index=0):
+    slots = obj.material_slots
+    if slot_index < 0 or slot_index >= len(slots):
         return None
-    return obj.material_slots[0].material
+    return slots[slot_index].material
 
-# check texture file
-def get_tex(obj):
-    mtl = get_mtl(obj)
+# check texture file for a given slot
+def get_tex(obj, slot_index=0):
+    mtl = get_mtl(obj, slot_index)
     if mtl is None or not mtl.use_nodes or mtl.node_tree is None:
         return None
 
-    # get texture node from tree (first material slot)
+    # get texture node from tree
     tex = [n for n in mtl.node_tree.nodes if n.type == 'TEX_IMAGE']
     if not tex:
         return None
@@ -191,14 +187,18 @@ def get_tex_key(image):
 
 # consolidate
 
-#TODO: add func to override which mat is being assigned to all objs
 def find_matching_objects(context):
-    """Find the other selected meshes that share the active object's source
-    texture (matched by filename, not by Image datablock identity).
+    """Find the other selected meshes that share the SOURCE texture of the
+    active object's chosen material slot (matched by filename, not by Image
+    datablock identity). The slot index (context.scene.port64_material_slot_index)
+    only applies to the active object - target objects are assumed to use a
+    single material slot, so their texture is always read from slot 0.
 
     Returns (active, active_mtl, matches). Raises ValueError with a
     user-facing message if the active object can't be used as the source.
     """
+    slot_index = context.scene.port64_material_slot_index
+
     # capture active and passive selected objects
     sel = context.selected_objects
     active = context.active_object
@@ -210,40 +210,53 @@ def find_matching_objects(context):
     if not passive:
         raise ValueError("Select at least one other mesh besides the active object")
 
-    # get active object's material
-    active_mtl = get_mtl(active)
+    # get active object's material in the chosen source slot
+    active_mtl = get_mtl(active, slot_index)
     if active_mtl is None:
-        raise ValueError(f"'{active.name}' has no material in slot 0")
+        raise ValueError(f"'{active.name}' has no material in slot {slot_index}")
 
-    # get active object's texture
-    active_tex = get_tex(active)
+    # get active object's texture in that same slot
+    active_tex = get_tex(active, slot_index)
     if active_tex is None:
         raise ValueError(f"Material '{active_mtl.name}' has no image texture node")
 
     active_key = get_tex_key(active_tex)
 
-    # find objs in passive selection using the same texture (by filename)
+    # find objs in passive selection using the same texture (by filename);
+    # targets are single-slot, so always read from slot 0
     matches = [p for p in passive if get_tex_key(get_tex(p)) == active_key]
 
     return active, active_mtl, matches
 
 
 def consolidate(context):
-    """Assign the active object's material to every other selected mesh
-    that shares its source texture. Returns the number of objects updated."""
+    """Assign the active object's source-slot material onto every other
+    selected mesh that shares its source texture. Target objects are
+    assumed to use a single material slot, so the material always goes
+    into slot 0 there. Objects with no material slot at all are skipped.
+
+    Returns (updated_count, skipped_count).
+    """
     active, active_mtl, matches = find_matching_objects(context)
 
+    updated = 0
+    skipped = 0
     for d in matches:
-        d.data.materials.clear()
-        d.data.materials.append(active_mtl)
+        if d.material_slots:
+            d.material_slots[0].material = active_mtl
+            updated += 1
+        else:
+            skipped += 1
 
-    return len(matches)
+    return updated, skipped
 
 
 def select_matching_objects(context):
     """Narrow the current selection down to the active object plus any other
-    selected mesh that shares its source texture. Returns the number of
-    matching objects kept (not counting the active object itself)."""
+    selected mesh that shares its source texture (read from the active
+    object's chosen slot, and from slot 0 on every target). Returns the
+    number of matching objects kept (not counting the active object
+    itself)."""
     active, _active_mtl, matches = find_matching_objects(context)
     keep = set(matches)
     keep.add(active)
@@ -257,29 +270,39 @@ def select_matching_objects(context):
 
 
 def copy_material_to_selection(context):
-    """Copy the active object's material (slot 0) onto every other selected
-    mesh, with no texture matching - this is the manual override for when
-    the active object's material was just changed and the rest of the
-    (already curated, e.g. via Select Matching) selection should follow it.
-    Returns the number of objects updated.
+    """Copy the active object's source-slot material onto every other
+    selected mesh, with no texture matching - this is the manual override
+    for when the active object's material was just changed and the rest of
+    the (already curated, e.g. via Select Matching) selection should follow
+    it. Target objects are assumed to use a single material slot, so the
+    material always goes into slot 0 there.
+
+    Returns (updated_count, skipped_count).
     """
+    slot_index = context.scene.port64_material_slot_index
+
     active = context.active_object
     if active is None:
         raise ValueError("No active object")
 
-    active_mtl = get_mtl(active)
+    active_mtl = get_mtl(active, slot_index)
     if active_mtl is None:
-        raise ValueError(f"'{active.name}' has no material in slot 0")
+        raise ValueError(f"'{active.name}' has no material in slot {slot_index}")
 
     targets = [o for o in context.selected_objects if o != active and o.type == 'MESH']
     if not targets:
         raise ValueError("Select at least one other mesh besides the active object")
 
+    updated = 0
+    skipped = 0
     for obj in targets:
-        obj.data.materials.clear()
-        obj.data.materials.append(active_mtl)
+        if obj.material_slots:
+            obj.material_slots[0].material = active_mtl
+            updated += 1
+        else:
+            skipped += 1
 
-    return len(targets)
+    return updated, skipped
 
 
 
@@ -442,15 +465,18 @@ class PORT64_OT_consolidate_materials(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            count = consolidate(context)
+            updated, skipped = consolidate(context)
         except ValueError as e:
             self.report({'WARNING'}, str(e))
             return {'CANCELLED'}
 
-        if count == 0:
+        if updated == 0 and skipped == 0:
             self.report({'INFO'}, "No matching objects found - nothing changed")
         else:
-            self.report({'INFO'}, f"Updated material on {count} object(s)")
+            msg = f"Updated material on {updated} object(s)"
+            if skipped:
+                msg += f", {skipped} skipped (no material slot)"
+            self.report({'INFO'}, msg)
         return {'FINISHED'}
 
 
@@ -498,12 +524,15 @@ class PORT64_OT_copy_material(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            count = copy_material_to_selection(context)
+            updated, skipped = copy_material_to_selection(context)
         except ValueError as e:
             self.report({'WARNING'}, str(e))
             return {'CANCELLED'}
 
-        self.report({'INFO'}, f"Copied material to {count} object(s)")
+        msg = f"Copied material to {updated} object(s)"
+        if skipped:
+            msg += f", {skipped} skipped (no material slot)"
+        self.report({'INFO'}, msg)
         return {'FINISHED'}
 
 #
@@ -563,6 +592,7 @@ class PORT64_PT_panel(bpy.types.Panel):
 
         col = layout.column(align=True)
         col.label(text="Materials", icon='MATERIAL')
+        col.prop(context.scene, "port64_material_slot_index", text="Source Slot")
         col.operator(PORT64_OT_consolidate_materials.bl_idname, text="Consolidate Materials")
 
         row = col.row(align=True)
@@ -600,9 +630,19 @@ def register():
         subtype='DIR_PATH',
     )
 
+    bpy.types.Scene.port64_material_slot_index = bpy.props.IntProperty(
+        name="Source Slot",
+        description=("Material slot on the ACTIVE object used as the source when matching, "
+                      "consolidating, and copying materials. Target objects are assumed to "
+                      "use a single material slot (slot 0)"),
+        min=0,
+        default=0,
+    )
+
 
 def unregister():
     del bpy.types.Scene.port64_texture_folder
+    del bpy.types.Scene.port64_material_slot_index
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
