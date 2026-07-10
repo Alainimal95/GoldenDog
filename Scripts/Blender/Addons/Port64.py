@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Port64",
     "author": "Hypernova",
-    "version": (1, 1, 0),
+    "version": (1, 1, 1),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > Port64",
     "description": "Toolset for processing assets imported from project 64",
@@ -256,6 +256,32 @@ def select_matching_objects(context):
     return len(matches)
 
 
+def copy_material_to_selection(context):
+    """Copy the active object's material (slot 0) onto every other selected
+    mesh, with no texture matching - this is the manual override for when
+    the active object's material was just changed and the rest of the
+    (already curated, e.g. via Select Matching) selection should follow it.
+    Returns the number of objects updated.
+    """
+    active = context.active_object
+    if active is None:
+        raise ValueError("No active object")
+
+    active_mtl = get_mtl(active)
+    if active_mtl is None:
+        raise ValueError(f"'{active.name}' has no material in slot 0")
+
+    targets = [o for o in context.selected_objects if o != active and o.type == 'MESH']
+    if not targets:
+        raise ValueError("Select at least one other mesh besides the active object")
+
+    for obj in targets:
+        obj.data.materials.clear()
+        obj.data.materials.append(active_mtl)
+
+    return len(targets)
+
+
 
 #
 # reload images
@@ -453,6 +479,33 @@ class PORT64_OT_select_matching_textures(bpy.types.Operator):
         self.report({'INFO'}, f"Kept {count} matching object(s) selected, plus the active object")
         return {'FINISHED'}
 
+
+class PORT64_OT_copy_material(bpy.types.Operator):
+    bl_idname = "object.port64_copy_material"
+    bl_label = "Copy Material to Selection"
+    bl_description = ("Copy the active object's material to every other selected mesh, "
+                       "with no texture check - use to override materials on a selection "
+                       "you've already curated (e.g. with Select Matching)")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'OBJECT'
+            and context.active_object is not None
+            and len(context.selected_objects) > 1
+        )
+
+    def execute(self, context):
+        try:
+            count = copy_material_to_selection(context)
+        except ValueError as e:
+            self.report({'WARNING'}, str(e))
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Copied material to {count} object(s)")
+        return {'FINISHED'}
+
 #
 # reload images
 #
@@ -511,7 +564,10 @@ class PORT64_PT_panel(bpy.types.Panel):
         col = layout.column(align=True)
         col.label(text="Materials", icon='MATERIAL')
         col.operator(PORT64_OT_consolidate_materials.bl_idname, text="Consolidate Materials")
-        col.operator(PORT64_OT_select_matching_textures.bl_idname, text="Select Matching")
+
+        row = col.row(align=True)
+        row.operator(PORT64_OT_select_matching_textures.bl_idname, text="Select Matching")
+        row.operator(PORT64_OT_copy_material.bl_idname, text="Copy Material")
 
         layout.separator()
 
@@ -528,6 +584,7 @@ classes = (
     PORT64_OT_group_snap,
     PORT64_OT_consolidate_materials,
     PORT64_OT_select_matching_textures,
+    PORT64_OT_copy_material,
     PORT64_OT_reload_images,
     PORT64_PT_panel,
 )
