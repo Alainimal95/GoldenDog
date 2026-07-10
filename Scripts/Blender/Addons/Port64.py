@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Port64",
     "author": "Hypernova",
-    "version": (1, 0, 1),
+    "version": (1, 1, 0),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > Port64",
     "description": "Toolset for processing assets imported from project 64",
@@ -191,13 +191,12 @@ def get_tex_key(image):
 
 # consolidate
 
-# TODO: add func to override which mat is being assigned to all objs
-def consolidate(context):
-    """Assign the active object's material to every other selected mesh
-    that shares the active object's source texture (matched by filename,
-    not by Image datablock identity).
+#TODO: add func to override which mat is being assigned to all objs
+def find_matching_objects(context):
+    """Find the other selected meshes that share the active object's source
+    texture (matched by filename, not by Image datablock identity).
 
-    Returns the number of objects updated. Raises ValueError with a
+    Returns (active, active_mtl, matches). Raises ValueError with a
     user-facing message if the active object can't be used as the source.
     """
     # capture active and passive selected objects
@@ -223,15 +222,38 @@ def consolidate(context):
 
     active_key = get_tex_key(active_tex)
 
-    # find objs in passive selection using the same texture (by filename) and add to list
-    dupe = [p for p in passive if get_tex_key(get_tex(p)) == active_key]
+    # find objs in passive selection using the same texture (by filename)
+    matches = [p for p in passive if get_tex_key(get_tex(p)) == active_key]
 
-    # assign active's material to all matching passive objects
-    for d in dupe:
+    return active, active_mtl, matches
+
+
+def consolidate(context):
+    """Assign the active object's material to every other selected mesh
+    that shares its source texture. Returns the number of objects updated."""
+    active, active_mtl, matches = find_matching_objects(context)
+
+    for d in matches:
         d.data.materials.clear()
         d.data.materials.append(active_mtl)
 
-    return len(dupe)
+    return len(matches)
+
+
+def select_matching_objects(context):
+    """Narrow the current selection down to the active object plus any other
+    selected mesh that shares its source texture. Returns the number of
+    matching objects kept (not counting the active object itself)."""
+    active, _active_mtl, matches = find_matching_objects(context)
+    keep = set(matches)
+    keep.add(active)
+
+    for obj in context.selected_objects:
+        if obj not in keep:
+            obj.select_set(False)
+
+    context.view_layer.objects.active = active
+    return len(matches)
 
 
 
@@ -405,6 +427,32 @@ class PORT64_OT_consolidate_materials(bpy.types.Operator):
             self.report({'INFO'}, f"Updated material on {count} object(s)")
         return {'FINISHED'}
 
+
+class PORT64_OT_select_matching_textures(bpy.types.Operator):
+    bl_idname = "object.port64_select_matching_textures"
+    bl_label = "Select Matching Textures"
+    bl_description = ("Narrow the current selection down to the active object and any "
+                       "other selected mesh that uses the same source texture")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'OBJECT'
+            and context.active_object is not None
+            and len(context.selected_objects) > 1
+        )
+
+    def execute(self, context):
+        try:
+            count = select_matching_objects(context)
+        except ValueError as e:
+            self.report({'WARNING'}, str(e))
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Kept {count} matching object(s) selected, plus the active object")
+        return {'FINISHED'}
+
 #
 # reload images
 #
@@ -463,6 +511,7 @@ class PORT64_PT_panel(bpy.types.Panel):
         col = layout.column(align=True)
         col.label(text="Materials", icon='MATERIAL')
         col.operator(PORT64_OT_consolidate_materials.bl_idname, text="Consolidate Materials")
+        col.operator(PORT64_OT_select_matching_textures.bl_idname, text="Select Matching")
 
         layout.separator()
 
@@ -478,6 +527,7 @@ class PORT64_PT_panel(bpy.types.Panel):
 classes = (
     PORT64_OT_group_snap,
     PORT64_OT_consolidate_materials,
+    PORT64_OT_select_matching_textures,
     PORT64_OT_reload_images,
     PORT64_PT_panel,
 )
