@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Port64",
     "author": "Hypernova",
-    "version": (1, 1, 3),
+    "version": (1, 1, 4),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > Port64",
     "description": "Toolset for processing assets imported from project 64",
@@ -632,13 +632,21 @@ class PORT64_OT_reload_images(bpy.types.Operator):
             self.report({'WARNING'}, str(e))
             return {'CANCELLED'}
 
+        if not_found:
+            print(f"[Port64] {len(not_found)} image(s) not found in texture folder:")
+            for name in sorted(not_found):
+                print(f"    {name}")
+
         if not updated:
-            self.report({'WARNING'}, "No matching images found in texture folder")
+            msg = "No matching images found in texture folder"
+            if not_found:
+                msg += " - check system console"
+            self.report({'WARNING'}, msg)
             return {'FINISHED'}
 
         msg = f"Reloaded {len(updated)} image(s)"
         if not_found:
-            msg += f", {len(not_found)} not found"
+            msg += f", {len(not_found)} not found - check system console"
         if not blend_saved:
             msg += " (paths stored as absolute - save the .blend to enable relative paths)"
         self.report({'INFO'}, msg)
