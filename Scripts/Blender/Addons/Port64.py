@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Port64",
     "author": "Hypernova",
-    "version": (1, 1, 2),
+    "version": (1, 1, 3),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > Port64",
     "description": "Toolset for processing assets imported from project 64",
@@ -327,10 +327,60 @@ def find_matching_texture(folder, filename):
             return path
     return None
 
-# point every FILE-source image at its match in the texture folder and
-# reload it. paths are stored relative to the .blend file (bpy.path.relpath)
-# when the file has been saved; otherwise there's no base to be relative to,
-# so we fall back to an absolute path and let the caller know.
+def replace_image_file(window, area, region, img, filepath):
+    """Point `img` at `filepath` using the Image Editor's "Replace" operator
+    rather than Image.reload(). Plain reload() has a known Blender bug
+    where the image can be left magenta even though the file loads fine
+    underneath - Replace does a full swap and doesn't have that issue.
+    """
+    area.spaces.active.image = img
+    with bpy.context.temp_override(window=window, area=area, region=region):
+        bpy.ops.image.replace(filepath=filepath)
+
+def find_image_editor_area(context):
+    """Return (window, area) for an Image Editor already open in the
+    current window, or (None, None) if there isn't one."""
+    window = context.window
+    screen = window.screen if window else None
+    if screen is None:
+        return None, None
+
+    for area in screen.areas:
+        if area.type == 'IMAGE_EDITOR':
+            return window, area
+    return None, None
+
+def find_hijack_area(context):
+    """Pick an area to temporarily convert into an Image Editor, for when
+    none is already open. Avoids 3D viewports so the user's viewport
+    doesn't flicker/reset - only used as a last resort if it's the only
+    area available."""
+    window = context.window
+    areas = window.screen.areas if window else []
+    if not areas:
+        return None, None
+
+    non_viewport = [a for a in areas if a.type != 'VIEW_3D']
+    area = non_viewport[0] if non_viewport else areas[0]
+    return window, area
+
+def run_image_replacements(window, area, region, to_process, blend_saved):
+    updated = []
+    for img, match in to_process:
+        replace_image_file(window, area, region, img, match)
+        if blend_saved:
+            img.filepath = bpy.path.relpath(img.filepath)
+        updated.append(img.name)
+    return updated
+
+# point every FILE-source image at its match in the texture folder using
+# bpy.ops.image.replace(). That operator only runs from an Image Editor
+# area: if one's already open we use it directly, otherwise we temporarily
+# convert a non-viewport area into one, run every replacement through it,
+# then restore that area's original type. Paths are stored relative to the
+# .blend file (bpy.path.relpath) when it's been saved; otherwise there's no
+# base to be relative to, so we fall back to an absolute path and let the
+# caller know.
 def reload_images_from_folder(context):
     folder = bpy.path.abspath(context.scene.port64_texture_folder)
     if not folder or not os.path.isdir(folder):
@@ -338,7 +388,7 @@ def reload_images_from_folder(context):
 
     blend_saved = bool(bpy.data.filepath)
 
-    updated = []
+    to_process = []
     not_found = []
 
     for img in bpy.data.images:
@@ -354,9 +404,33 @@ def reload_images_from_folder(context):
             not_found.append(img.name)
             continue
 
-        img.filepath = bpy.path.relpath(match) if blend_saved else match
-        img.reload()
-        updated.append(img.name)
+        to_process.append((img, match))
+
+    updated = []
+
+    if to_process:
+        window, area = find_image_editor_area(context)
+        hijacked = False
+
+        if area is None:
+            window, area = find_hijack_area(context)
+            if area is None:
+                raise ValueError("No UI area available to run the image replace operator")
+            hijacked = True
+
+        original_type = area.type
+        try:
+            if hijacked:
+                area.type = 'IMAGE_EDITOR'
+
+            region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+            if region is None:
+                raise ValueError("Image Editor area has no WINDOW region")
+
+            updated = run_image_replacements(window, area, region, to_process, blend_saved)
+        finally:
+            if hijacked:
+                area.type = original_type
 
     return updated, not_found, blend_saved
 
@@ -543,7 +617,8 @@ class PORT64_OT_reload_images(bpy.types.Operator):
     bl_idname = "image.port64_reload_images"
     bl_label = "Reload Images From Folder"
     bl_description = ("Search the texture folder for a file matching each image's current "
-                       "filename (preferring a same-named .png) and reload it from there")
+                       "filename (preferring a same-named .png) and replace it from there, "
+                       "using Blender's Image Replace to avoid the reload magenta bug")
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
