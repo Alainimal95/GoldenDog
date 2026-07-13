@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Port64",
     "author": "Hypernova",
-    "version": (1, 1, 4),
+    "version": (1, 1, 5),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > Port64",
     "description": "Toolset for processing assets imported from project 64",
@@ -364,12 +364,10 @@ def find_hijack_area(context):
     area = non_viewport[0] if non_viewport else areas[0]
     return window, area
 
-def run_image_replacements(window, area, region, to_process, blend_saved):
+def run_image_replacements(window, area, region, to_process):
     updated = []
     for img, match in to_process:
         replace_image_file(window, area, region, img, match)
-        if blend_saved:
-            img.filepath = bpy.path.relpath(img.filepath)
         updated.append(img.name)
     return updated
 
@@ -377,10 +375,12 @@ def run_image_replacements(window, area, region, to_process, blend_saved):
 # bpy.ops.image.replace(). That operator only runs from an Image Editor
 # area: if one's already open we use it directly, otherwise we temporarily
 # convert a non-viewport area into one, run every replacement through it,
-# then restore that area's original type. Paths are stored relative to the
-# .blend file (bpy.path.relpath) when it's been saved; otherwise there's no
-# base to be relative to, so we fall back to an absolute path and let the
-# caller know.
+# then restore that area's original type. Every replacement is done with
+# an absolute path; if the .blend has been saved, paths are converted to
+# relative afterward with bpy.ops.file.make_paths_relative() (the same
+# thing "External Data > Make Paths Relative" runs) rather than assigning
+# img.filepath directly - a raw property write leaves the image magenta
+# even though the file is valid, the same class of bug as Image.reload().
 def reload_images_from_folder(context):
     folder = bpy.path.abspath(context.scene.port64_texture_folder)
     if not folder or not os.path.isdir(folder):
@@ -427,10 +427,13 @@ def reload_images_from_folder(context):
             if region is None:
                 raise ValueError("Image Editor area has no WINDOW region")
 
-            updated = run_image_replacements(window, area, region, to_process, blend_saved)
+            updated = run_image_replacements(window, area, region, to_process)
         finally:
             if hijacked:
                 area.type = original_type
+
+        if blend_saved and updated:
+            bpy.ops.file.make_paths_relative()
 
     return updated, not_found, blend_saved
 
