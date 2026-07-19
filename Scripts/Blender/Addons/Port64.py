@@ -440,8 +440,9 @@ def reload_images_from_folder(context):
 #
 # rescale
 #
-def rescale(context):
-    s = context.scene.port64_scale
+
+def rescale():
+    s = bpy.context.scene.port64_scale
     scale = (s, s, s)
 
     #set pivot - may add more options later if needed
@@ -534,6 +535,7 @@ class PORT64_OT_group_snap(bpy.types.Operator):
             obj.location += delta
         self.report({'INFO'}, f"Moved {len(self.selected_objects)} object(s) by {tuple(round(c, 4) for c in delta)}")
 
+
 #
 # consolidate materials
 #
@@ -625,6 +627,7 @@ class PORT64_OT_copy_material(bpy.types.Operator):
         self.report({'INFO'}, msg)
         return {'FINISHED'}
 
+
 #
 # reload images
 #
@@ -668,6 +671,7 @@ class PORT64_OT_reload_images(bpy.types.Operator):
         self.report({'INFO'}, msg)
         return {'FINISHED'}
 
+
 #
 # rescale
 #
@@ -684,11 +688,12 @@ class PORT64_OT_rescale(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            rescale(context)
+            rescale()
         except ValueError as e:
             self.report({'WARNING'}, str(e))
             return {'CANCELLED'}        
         return {'FINISHED'} 
+
 
 # ---------------------------------------------------------------------------
 # panel
@@ -784,6 +789,7 @@ def register():
 def unregister():
     del scene.port64_texture_folder
     del scene.port64_material_slot_index
+    del scene.port64_scale
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

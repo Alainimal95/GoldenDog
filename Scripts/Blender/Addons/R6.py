@@ -1,9 +1,9 @@
 bl_info = {
-    "name": "R5: Rejoin, Restore, Reset, Recenter",
-    "author": "You",
-    "version": (1, 1, 1),
+    "name": "R6 Prop Tools",
+    "author": "Hypernova",
+    "version": (1, 2, 0),
     "blender": (5, 0, 1),
-    "location": "View3D > Sidebar > R5",
+    "location": "View3D > Sidebar > R6",
     "description": "Merge verts/objects, restore rotation, reset transforms, and recenter origin at base",
     "category": "Object",
 }
@@ -100,6 +100,7 @@ def build_rotation_matrix(forward, up, priority='FORWARD'):
     ))
     return rot3.to_4x4()
 
+
 #
 # data/mesh edit
 #
@@ -161,8 +162,8 @@ def recenter_all():
 # restore rotation values using a parent empty to null current orientation
 def restore_rotation(obj, priority='FORWARD'):
     # read custom properties and build the rot matrix
-    forward = Vector(obj["R5_forward"])
-    up = Vector(obj["R5_up"])
+    forward = Vector(obj["R6_forward"])
+    up = Vector(obj["R6_up"])
     rot_matrix = build_rotation_matrix(forward, up, priority=priority)
     
     # return to object mode
@@ -178,7 +179,7 @@ def restore_rotation(obj, priority='FORWARD'):
     orig_sel = list(bpy.context.selected_objects)
     
     # add and align empty (will become parent)
-    empty = bpy.data.objects.new("R5_TEMP_EMPTY", None)
+    empty = bpy.data.objects.new("R6_TEMP_EMPTY", None)
     bpy.context.collection.objects.link(empty)
     empty.matrix_world = Matrix.Translation(obj.matrix_world.translation) @ rot_matrix
     
@@ -204,8 +205,8 @@ def restore_rotation(obj, priority='FORWARD'):
 
     # remove empty/custom properties and restore selection
     bpy.data.objects.remove(empty, do_unlink=True)
-    del obj["R5_forward"]
-    del obj["R5_up"]
+    del obj["R6_forward"]
+    del obj["R6_up"]
     
     bpy.ops.object.select_all(action='DESELECT')
     for o in orig_sel:
@@ -254,25 +255,42 @@ def rebase():
     # apply transforms
     bpy.ops.object.transform_apply(location=True)
 
-# R5 (execute all): run the full pipeline top to bottom on one object
+#
+# rescale
+#
+
+def rescale():
+    s = bpy.context.scene.r6_scale
+    scale = (s, s, s)
+
+    #set pivot - may add more options later if needed
+    pivot = (0, 0, 0)
+
+    #scale and apply
+    bpy.ops.transform.resize(value=(scale), center_override=(pivot))
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    
+    
+# R6 (execute all): run the full pipeline top to bottom on one object
 def run_all(obj, priority='FORWARD'):
     rejoin()
     recenter_all()
     restore_rotation(obj, priority=priority)
     reset_all_xforms()
     rebase()
-
-
+    rescale()
+    
+    
 # ---------------------------------------------------------------------------
-# Operators
+# operators
 # ---------------------------------------------------------------------------
 
 # 
 # rejoin
 # 
 
-class R5_OT_rejoin(bpy.types.Operator):
-    bl_idname = "r5.rejoin"
+class R6_OT_rejoin(bpy.types.Operator):
+    bl_idname = "r6.rejoin"
     bl_label = "Merge And Combine"
     bl_description = "Merge vertices of all selected objects and combine with active object"
     bl_options = {'REGISTER', 'UNDO'}
@@ -291,12 +309,13 @@ class R5_OT_rejoin(bpy.types.Operator):
             return {'CANCELLED'}
         return {'FINISHED'}
 
+
 # 
 # recenter origin
 # 
 
-class R5_OT_recenter_all(bpy.types.Operator):
-    bl_idname = "r5.recenter_all"
+class R6_OT_recenter_all(bpy.types.Operator):
+    bl_idname = "r6.recenter_all"
     bl_label = "Recenter Origin(s)"
     bl_description = "Set origins of each selected object to the geometry's center"
     bl_options = {'REGISTER', 'UNDO'}
@@ -315,13 +334,14 @@ class R5_OT_recenter_all(bpy.types.Operator):
             return {'CANCELLED'}
         return {'FINISHED'}
 
+
 # 
 # restore orientation
 # 
 
 # define forward vector
-class R5_OT_set_forward(bpy.types.Operator):
-    bl_idname = "r5.set_forward"
+class R6_OT_set_forward(bpy.types.Operator):
+    bl_idname = "r6.set_forward"
     bl_label = "Set Forward From Selection"
     bl_description = "Store the current edit mode selection as the forward (+Y) vector"
     bl_options = {'REGISTER', 'UNDO'}
@@ -338,13 +358,13 @@ class R5_OT_set_forward(bpy.types.Operator):
         except RuntimeError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-        obj["R5_forward"] = tuple(v)
+        obj["R6_forward"] = tuple(v)
         self.report({'INFO'}, f"Forward vector set: ({v.x:.3f}, {v.y:.3f}, {v.z:.3f})")
         return {'FINISHED'}
 
 # define up vector
-class R5_OT_set_up(bpy.types.Operator):
-    bl_idname = "r5.set_up"
+class R6_OT_set_up(bpy.types.Operator):
+    bl_idname = "r6.set_up"
     bl_label = "Set Up From Selection"
     bl_description = "Store the current edit mode selection as the up (+Z) vector"
     bl_options = {'REGISTER', 'UNDO'}
@@ -361,13 +381,13 @@ class R5_OT_set_up(bpy.types.Operator):
         except RuntimeError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-        obj["R5_up"] = tuple(v)
+        obj["R6_up"] = tuple(v)
         self.report({'INFO'}, f"Up vector set: ({v.x:.3f}, {v.y:.3f}, {v.z:.3f})")
         return {'FINISHED'}
 
 # clear captured vectors
-class R5_OT_clear_vectors(bpy.types.Operator):
-    bl_idname = "r5.clear_vectors"
+class R6_OT_clear_vectors(bpy.types.Operator):
+    bl_idname = "r6.clear_vectors"
     bl_label = "Clear Stored Vectors"
     bl_description = "Discard the stored Forward/Up vectors on this object"
     bl_options = {'REGISTER', 'UNDO'}
@@ -375,17 +395,17 @@ class R5_OT_clear_vectors(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return obj is not None and ("R5_forward" in obj or "R5_up" in obj)
+        return obj is not None and ("R6_forward" in obj or "R6_up" in obj)
 
     def execute(self, context):
         obj = context.object
-        obj.pop("R5_forward", None)
-        obj.pop("R5_up", None)
+        obj.pop("R6_forward", None)
+        obj.pop("R6_up", None)
         return {'FINISHED'}
 
 # restore rotation
-class R5_OT_restore_rotation(bpy.types.Operator):
-    bl_idname = "r5.restore_rotation"
+class R6_OT_restore_rotation(bpy.types.Operator):
+    bl_idname = "r6.restore_rotation"
     bl_label = "Restore Rotation"
     bl_description = "Reconstruct the object's rotation from the stored Forward/Up vectors"
     bl_options = {'REGISTER', 'UNDO'}
@@ -396,13 +416,13 @@ class R5_OT_restore_rotation(bpy.types.Operator):
         return (
             obj is not None
             and obj.type == 'MESH'
-            and "R5_forward" in obj
-            and "R5_up" in obj
+            and "R6_forward" in obj
+            and "R6_up" in obj
         )
 
     def execute(self, context):
         obj = context.object
-        priority = context.scene.R5_priority
+        priority = context.scene.R6_priority
         try:
             restore_rotation(obj, priority=priority)
         except (RuntimeError, ValueError) as e:
@@ -413,9 +433,10 @@ class R5_OT_restore_rotation(bpy.types.Operator):
 
 # 
 # reset transforms
-# 
-class R5_OT_reset_xforms(bpy.types.Operator):
-    bl_idname = "r5.reset_xforms"
+#
+ 
+class R6_OT_reset_xforms(bpy.types.Operator):
+    bl_idname = "r6.reset_xforms"
     bl_label = "Reset All Transforms"
     bl_description = "Zero out location and rotation, then set scale to 1 on each axis"
     bl_options = {'REGISTER', 'UNDO'}
@@ -437,8 +458,9 @@ class R5_OT_reset_xforms(bpy.types.Operator):
 # 
 # rebase
 # 
-class R5_OT_rebase(bpy.types.Operator):
-    bl_idname = "r5.rebase"
+
+class R6_OT_rebase(bpy.types.Operator):
+    bl_idname = "r6.rebase"
     bl_label = "Rebase"
     bl_description = "Set the origin to the base of the geometry"
     bl_options = {'REGISTER', 'UNDO'}
@@ -459,10 +481,34 @@ class R5_OT_rebase(bpy.types.Operator):
 
 
 #
+# rescale
+#
+
+class R6_OT_rescale(bpy.types.Operator):
+    bl_idname = "r6.rescale"
+    bl_label = "Rescale"
+    bl_description = "Rescale the selection and apply the new scale"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return len(context.selected_objects) > 0
+
+    def execute(self, context):
+        try:
+            rescale()
+        except ValueError as e:
+            self.report({'WARNING'}, str(e))
+            return {'CANCELLED'}        
+        return {'FINISHED'}
+    
+    
+#
 # run all
 #
-class R5_OT_run_all(bpy.types.Operator):
-    bl_idname = "r5.run_all"
+
+class R6_OT_run_all(bpy.types.Operator):
+    bl_idname = "r6.run_all"
     bl_label = "Run Full Workflow"
     bl_description = (
         "Run the entire pipeline in order on the active object: Rejoin, "
@@ -478,13 +524,13 @@ class R5_OT_run_all(bpy.types.Operator):
             obj is not None
             and obj.type == 'MESH'
             and obj.mode == 'OBJECT'
-            and "R5_forward" in obj
-            and "R5_up" in obj
+            and "R6_forward" in obj
+            and "R6_up" in obj
         )
 
     def execute(self, context):
         obj = context.object
-        priority = context.scene.R5_priority
+        priority = context.scene.R6_priority
         try:
             run_all(obj, priority=priority)
         except (RuntimeError, ValueError) as e:
@@ -495,15 +541,15 @@ class R5_OT_run_all(bpy.types.Operator):
 
 
 # ---------------------------------------------------------------------------
-# Panel
+# panel
 # ---------------------------------------------------------------------------
 
-class R5_PT_panel(bpy.types.Panel):
-    bl_label = "R5: Rejoin, Recenter, Restore, Reset, Rebase"
-    bl_idname = "R5_PT_panel"
+class R6_PT_panel(bpy.types.Panel):
+    bl_label = "R6 Prop Tools"
+    bl_idname = "R6_PT_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "R5"
+    bl_category = "R6"
 
     def draw(self, context):
         layout = self.layout
@@ -514,26 +560,28 @@ class R5_PT_panel(bpy.types.Panel):
             return
 
         # run everything, top to bottom
-        layout.operator("r5.run_all", icon='PLAY')
+        layout.operator("r6.run_all", icon='PLAY')
         layout.separator()
 
         # merge and combine (rejoin)
         layout.label(text="Rejoin", icon='FULLSCREEN_EXIT')
-        layout.operator("r5.rejoin", icon='FULLSCREEN_EXIT')
+        layout.operator("r6.rejoin", icon='FULLSCREEN_EXIT')
+        layout.separator()
         
         # recenter origin
         layout.label(text="Recenter Origin", icon='LIGHTPROBE_SPHERE')
-        layout.operator("r5.recenter_all", icon='LIGHTPROBE_SPHERE')
+        layout.operator("r6.recenter_all", icon='LIGHTPROBE_SPHERE')
+        layout.separator()
         
         # restore rotation
         layout.label(text="Restore Rotation", icon='ORIENTATION_GIMBAL')
 
-        fwd = obj.get("R5_forward")
-        up = obj.get("R5_up")
+        fwd = obj.get("R6_forward")
+        up = obj.get("R6_up")
 
         box = layout.box()
         box.label(text="1. Forward Vector (+Y)")
-        box.operator("r5.set_forward", icon='EMPTY_SINGLE_ARROW')
+        box.operator("r6.set_forward", icon='EMPTY_SINGLE_ARROW')
         if fwd:
             box.label(text=f"({fwd[0]:.3f}, {fwd[1]:.3f}, {fwd[2]:.3f})")
         else:
@@ -541,7 +589,7 @@ class R5_PT_panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="2. Up Vector (+Z)")
-        box.operator("r5.set_up", icon='EMPTY_SINGLE_ARROW')
+        box.operator("r6.set_up", icon='EMPTY_SINGLE_ARROW')
         if up:
             box.label(text=f"({up[0]:.3f}, {up[1]:.3f}, {up[2]:.3f})")
         else:
@@ -549,44 +597,55 @@ class R5_PT_panel(bpy.types.Panel):
 
         layout.separator()
         layout.label(text="Priority if not perpendicular:")
-        layout.prop(context.scene, "R5_priority", expand=True)
+        layout.prop(context.scene, "R6_priority", expand=True)
 
         layout.separator()
-        layout.operator("r5.restore_rotation", icon='ORIENTATION_GIMBAL')
-        layout.operator("r5.clear_vectors", icon='TRASH')
+        layout.operator("r6.restore_rotation", icon='ORIENTATION_GIMBAL')
+        layout.operator("r6.clear_vectors", icon='TRASH')
+        layout.separator()
         
         # reset transforms
         layout.label(text="Reset Transforms", icon='RECOVER_LAST')
-        layout.operator("r5.reset_xforms", icon='RECOVER_LAST')
+        layout.operator("r6.reset_xforms", icon='RECOVER_LAST')
+        layout.separator()
         
         # rebase
         layout.label(text="Rebase", icon='IMPORT')
-        layout.operator("r5.rebase", icon='IMPORT')
+        layout.operator("r6.rebase", icon='IMPORT')
+        layout.separator()
+        
+        # rescale
+        col = layout.column(align=True)
+        col.label(text="Scale", icon='MOD_LENGTH')
+        col.prop(context.scene, "r6_scale", text="Uniform Scale")
+        col.operator("r6.rescale", text="Resize")
 
 
 # ---------------------------------------------------------------------------
-# Registration
+# registration
 # ---------------------------------------------------------------------------
 
 classes = (
-    R5_OT_rejoin,
-    R5_OT_recenter_all,
-    R5_OT_set_forward,
-    R5_OT_set_up,
-    R5_OT_clear_vectors,
-    R5_OT_restore_rotation,
-    R5_OT_reset_xforms,
-    R5_OT_rebase,
-    R5_OT_run_all,
-    R5_PT_panel,
+    R6_OT_rejoin,
+    R6_OT_recenter_all,
+    R6_OT_set_forward,
+    R6_OT_set_up,
+    R6_OT_clear_vectors,
+    R6_OT_restore_rotation,
+    R6_OT_reset_xforms,
+    R6_OT_rebase,
+    R6_OT_rescale,
+    R6_OT_run_all,
+    R6_PT_panel,
 )
 
+scene = bpy.types.Scene
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    bpy.types.Scene.R5_priority = bpy.props.EnumProperty(
+    scene.R6_priority = bpy.props.EnumProperty(
         name="Priority",
         description="Which vector stays exact when forward and up aren't perpendicular",
         items=[
@@ -595,10 +654,16 @@ def register():
         ],
         default='FORWARD',
     )
-
+    
+    scene.r6_scale = bpy.props.FloatProperty(
+        name="Scale",
+        description="Uniform scale to apply to selected objects",
+        default=100,
+    )
 
 def unregister():
-    del bpy.types.Scene.R5_priority
+    del scene.R6_priority
+    del scene.r6_scale
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
