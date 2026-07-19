@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Port64",
     "author": "Hypernova",
-    "version": (1, 1, 5),
+    "version": (1, 1, 6),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > Port64",
     "description": "Toolset for processing assets imported from project 64",
@@ -305,7 +305,6 @@ def copy_material_to_selection(context):
     return updated, skipped
 
 
-
 #
 # reload images
 #
@@ -437,6 +436,20 @@ def reload_images_from_folder(context):
 
     return updated, not_found, blend_saved
 
+
+#
+# rescale
+#
+def rescale(context):
+    s = context.scene.port64_scale
+    scale = (s, s, s)
+
+    #set pivot - may add more options later if needed
+    pivot = (0, 0, 0)
+
+    #scale and apply
+    bpy.ops.transform.resize(value=(scale), center_override=(pivot))
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
 
 # ---------------------------------------------------------------------------
@@ -655,6 +668,27 @@ class PORT64_OT_reload_images(bpy.types.Operator):
         self.report({'INFO'}, msg)
         return {'FINISHED'}
 
+#
+# rescale
+#
+
+class PORT64_OT_rescale(bpy.types.Operator):
+    bl_idname = "object.port64_rescale"
+    bl_label = "Rescale"
+    bl_description = "Rescale the selection and apply the new scale"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return len(context.selected_objects) > 0
+
+    def execute(self, context):
+        try:
+            rescale(context)
+        except ValueError as e:
+            self.report({'WARNING'}, str(e))
+            return {'CANCELLED'}        
+        return {'FINISHED'} 
 
 # ---------------------------------------------------------------------------
 # panel
@@ -670,12 +704,14 @@ class PORT64_PT_panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
 
+        # group snap
         col = layout.column(align=True)
         col.label(text="Group Snap", icon='SNAP_VERTEX')
         col.operator(PORT64_OT_group_snap.bl_idname, text="Snap Group to Point")
 
         layout.separator()
-
+        
+        # consolidate materials
         col = layout.column(align=True)
         col.label(text="Materials", icon='MATERIAL')
         col.prop(context.scene, "port64_material_slot_index", text="Source Slot")
@@ -686,11 +722,21 @@ class PORT64_PT_panel(bpy.types.Panel):
         row.operator(PORT64_OT_copy_material.bl_idname, text="Copy Material")
 
         layout.separator()
-
+        
+        # reload textures
         col = layout.column(align=True)
         col.label(text="Textures", icon='IMAGE_DATA')
         col.prop(context.scene, "port64_texture_folder", text="")
         col.operator(PORT64_OT_reload_images.bl_idname, text="Reload Images")
+        
+        layout.separator()
+        
+        # rescale
+        col = layout.column(align=True)
+        col.label(text="Scale", icon='MOD_LENGTH')
+        col.prop(context.scene, "port64_scale", text="Uniform Scale")
+        col.operator(PORT64_OT_rescale.bl_idname, text="Resize")
+        
 
 # ---------------------------------------------------------------------------
 # registration
@@ -702,21 +748,24 @@ classes = (
     PORT64_OT_select_matching_textures,
     PORT64_OT_copy_material,
     PORT64_OT_reload_images,
+    PORT64_OT_rescale,
     PORT64_PT_panel,
 )
 
+scene = bpy.types.Scene
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    bpy.types.Scene.port64_texture_folder = bpy.props.StringProperty(
+    # user input scene props
+    scene.port64_texture_folder = bpy.props.StringProperty(
         name="Texture Folder",
         description="Folder to search for replacement image files when reloading textures",
         subtype='DIR_PATH',
     )
 
-    bpy.types.Scene.port64_material_slot_index = bpy.props.IntProperty(
+    scene.port64_material_slot_index = bpy.props.IntProperty(
         name="Source Slot",
         description=("Material slot on the ACTIVE object used as the source when matching, "
                       "consolidating, and copying materials. Target objects are assumed to "
@@ -725,10 +774,16 @@ def register():
         default=0,
     )
 
+    scene.port64_scale = bpy.props.FloatProperty(
+        name="Scale",
+        description="Uniform scale to apply to selected objects",
+        default=100,
+    )
+
 
 def unregister():
-    del bpy.types.Scene.port64_texture_folder
-    del bpy.types.Scene.port64_material_slot_index
+    del scene.port64_texture_folder
+    del scene.port64_material_slot_index
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
