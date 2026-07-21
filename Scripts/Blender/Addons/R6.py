@@ -151,7 +151,7 @@ def recenter_all():
         s.select_set(True)
         
         #set origin to geo
-        bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
+        bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_VOLUME', center='MEDIAN')
 
     # restore original selection
     bpy.ops.object.select_all(action='DESELECT')
