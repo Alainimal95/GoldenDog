@@ -1,7 +1,7 @@
 bl_info = {
     "name": "R6 Prop Tools",
     "author": "Hypernova",
-    "version": (1, 2, 0),
+    "version": (1, 2, 1),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > R6",
     "description": "Merge verts/objects, restore rotation, reset transforms, and recenter origin at base",
