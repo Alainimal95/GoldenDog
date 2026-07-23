@@ -21,9 +21,8 @@ def get_axis(dir):
     return axis_vector[dir]
 
 # select faces with matching normals
-def select_by_normal(dir):
+def select_by_normal(dir, extend):
     # add mode switch here
-    # alsocapture orig selection if any for selection extension
     target_vector = get_axis(dir)
     
     # faces of object
@@ -32,7 +31,9 @@ def select_by_normal(dir):
     faces = bm.faces
     
     # TODO: soft select the target vector
-
+    if not extend:
+        for f in faces:
+            f.select = 0 
     sel = [n for n in faces if Vector.dot(n.normal, target_vector) == 1]
     for s in sel:
         s.select = 1
@@ -62,6 +63,8 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
     
     # options and layout
     axis: bpy.props.EnumProperty(name="Axis", items=directions)
+    extend: bpy.props.BoolProperty(name="Extend Selection", default=True)
+    # threshold
         
     @classmethod
     def poll(cls, context):
@@ -73,10 +76,11 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
     def execute(self, context):
         
         dir = int(self.axis)
-        print(dir)
+        extend = self.extend
+        print(extend)
         
         try:
-            select_by_normal(dir)
+            select_by_normal(dir, extend)
         except ValueError as e:
             self.report({'WARNING'}, str(e))
             return {'CANCELLED'}        
