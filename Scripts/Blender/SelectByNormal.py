@@ -1,6 +1,7 @@
 # make a face selection of faces whose normals match a user defined direction
 import bpy
 import bmesh
+import bl_math
 from mathutils import Vector
 
 # ---------------------------------------------------------------------------
@@ -43,7 +44,7 @@ def select_by_normal(dir, threshold, extend):
     # update viewport
     bmesh.update_edit_mesh(act.data)
 
-def remap_value_range(value, in_min, in_max, out_min, out_max):
+def remap_value_range(value, in_min, in_max, out_min, out_max, clamp_in, clamp_out):
     # remaps a value from its input range to its output range
     # TODO: add clamps of inputs/outputs
     
@@ -52,7 +53,7 @@ def remap_value_range(value, in_min, in_max, out_min, out_max):
     out_rng = out_max - out_min
     scale = in_rng/out_rng
     offset = out_min - in_min
-   
+    
     """
     # debug print
     print("in value: ", value)
@@ -66,11 +67,31 @@ def remap_value_range(value, in_min, in_max, out_min, out_max):
     print("offset: ", offset)
     """
     
-    # find the scale difference
+    # clamp input
+    if clamp_in:
+        # clamp, but ensure clamp mins/maxes are not flipped
+        clamp_min = min(in_min, in_max)
+        clamp_max = max(in_min, in_max)
+        value = bl_math.clamp(value, clamp_min, clamp_max)
+        
+        # debug print
+        # print("in clamped: ", value)
+    
+    # remap value
     value = (value/scale) + offset 
     
-    # debug print
+    # debug print remapped value
     # print("out value: ", value)
+    
+    # clamp output
+    if clamp_out:
+        # clamp, but ensure clamp mins/maxes are not flipped
+        clamp_min = min(out_min, out_max)
+        clamp_max = max(out_min, out_max)
+        value = bl_math.clamp(value, clamp_min, clamp_max)
+        
+        # debug print
+        # print("out clamped: ", value)
     
     return value
     
@@ -110,7 +131,7 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
         dir = int(self.axis)
         extend = self.extend
         #remap threshold from 0, 180 to 1, -1  
-        threshold = remap_value_range(self.threshold, 0, 180, 1, -1)
+        threshold = remap_value_range(self.threshold, 0, 180, 1, -1, True, True)
         print(extend)
         
         try:
