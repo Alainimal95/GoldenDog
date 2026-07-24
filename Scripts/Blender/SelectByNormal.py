@@ -21,11 +21,11 @@ def get_axis(dir):
     return axis_vector[dir]
 
 # select faces with matching normals
-def select_by_normal(dir, extend):
+def select_by_normal(dir, threshold, extend):
     # add mode switch here
     target_vector = get_axis(dir)
     
-    # faces of object
+    # bmesh faces of object
     act = bpy.context.active_object
     bm = bmesh.from_edit_mesh(act.data)
     faces = bm.faces
@@ -34,7 +34,7 @@ def select_by_normal(dir, extend):
     if not extend:
         for f in faces:
             f.select = 0 
-    sel = [n for n in faces if Vector.dot(n.normal, target_vector) == 1]
+    sel = [n for n in faces if Vector.dot(n.normal, target_vector) >= threshold]
     for s in sel:
         s.select = 1
     
@@ -63,9 +63,10 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
     
     # options and layout
     axis: bpy.props.EnumProperty(name="Axis", items=directions)
+    threshold: bpy.props.FloatProperty(name="Threshold", default=0)
     extend: bpy.props.BoolProperty(name="Extend Selection", default=True)
-    # threshold
-        
+    #remap range 1, -1 to 0, -180
+    
     @classmethod
     def poll(cls, context):
         return (
@@ -77,10 +78,11 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
         
         dir = int(self.axis)
         extend = self.extend
+        threshold = self.threshold
         print(extend)
         
         try:
-            select_by_normal(dir, extend)
+            select_by_normal(dir, threshold, extend)
         except ValueError as e:
             self.report({'WARNING'}, str(e))
             return {'CANCELLED'}        
