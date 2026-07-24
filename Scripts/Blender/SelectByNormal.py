@@ -22,7 +22,9 @@ def get_axis(dir):
 
 # select faces with matching normals
 def select_by_normal(dir, threshold, extend):
-    # add mode switch here
+    # TODO:
+        # add mode switch here
+        # add invert selection bool
     target_vector = get_axis(dir)
     
     # bmesh faces of object
@@ -41,6 +43,36 @@ def select_by_normal(dir, threshold, extend):
     # update viewport
     bmesh.update_edit_mesh(act.data)
 
+def remap_value_range(value, in_min, in_max, out_min, out_max):
+    # remaps a value from its input range to its output range
+    # TODO: add clamps of inputs/outputs
+    
+    # get the difference of each range min & max, range scales, and the offset
+    in_rng = in_max - in_min
+    out_rng = out_max - out_min
+    scale = in_rng/out_rng
+    offset = out_min - in_min
+   
+    """
+    # debug print
+    print("in value: ", value)
+    print("in min: ", in_min)
+    print("in max: ", in_max)
+    print("out min: ", out_min)
+    print("out max: ", out_max)
+    print("in range: ", in_rng)
+    print("out range: ", out_rng)
+    print("scale: ", scale)
+    print("offset: ", offset)
+    """
+    
+    # find the scale difference
+    value = (value/scale) + offset 
+    
+    # debug print
+    # print("out value: ", value)
+    
+    return value
     
 #
 # operator
@@ -63,9 +95,8 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
     
     # options and layout
     axis: bpy.props.EnumProperty(name="Axis", items=directions)
-    threshold: bpy.props.FloatProperty(name="Threshold", default=0)
+    threshold: bpy.props.FloatProperty(name="Threshold (Cone) Angle", default=0)
     extend: bpy.props.BoolProperty(name="Extend Selection", default=True)
-    #remap range 1, -1 to 0, -180
     
     @classmethod
     def poll(cls, context):
@@ -78,7 +109,8 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
         
         dir = int(self.axis)
         extend = self.extend
-        threshold = self.threshold
+        #remap threshold from 0, 180 to 1, -1  
+        threshold = remap_value_range(self.threshold, 0, 180, 1, -1)
         print(extend)
         
         try:
