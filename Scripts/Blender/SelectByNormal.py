@@ -10,8 +10,22 @@ from mathutils import Vector
 
 # get vector of target direction
 def get_axis(dir):
+    # Read the current edit mode selection -> normalized world-space vector
+    act = bpy.context.active_object
+    bm = bmesh.from_edit_mesh(act.data)
+    
+    #active component
+    active_component = bm.select_history.active
+    
+    # average the selection of verts 
+    sel_verts = [v for v in bm.verts if v.select]
+    vert_normals = [v.normal for v in sel_verts]
+    avg_norm = sum(vert_normals, Vector()) / len(vert_normals)
+    
     #set enum property 
     axis_vector = [
+        active_component.normal,    # active
+        avg_norm,    # selected
         (1, 0, 0),
         (-1, 0, 0),
         (0, 1, 0),
@@ -23,9 +37,7 @@ def get_axis(dir):
 
 # select faces with matching normals
 def select_by_normal(dir, threshold, extend):
-    # TODO:
-        # add mode switch here
-        # add invert selection bool
+    # TODO: add invert selection bool
     target_vector = get_axis(dir)
     
     # bmesh faces of object
@@ -46,7 +58,6 @@ def select_by_normal(dir, threshold, extend):
 
 def remap_value_range(value, in_min, in_max, out_min, out_max, clamp_in, clamp_out):
     # remaps a value from its input range to its output range
-    # TODO: add clamps of inputs/outputs
     
     # get the difference of each range min & max, range scales, and the offset
     in_rng = in_max - in_min
@@ -106,12 +117,14 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     directions = [
-        ("0", "X+", ""),
-        ("1", "X-", ""),
-        ("2", "Y+", ""),
-        ("3", "Y-", ""),
-        ("4", "Z+", ""),
-        ("5", "Z-", "")
+        ("0", "Active", ""),
+        ("1", "Selected", ""),
+        ("2", "X+", ""),
+        ("3", "X-", ""),
+        ("4", "Y+", ""),
+        ("5", "Y-", ""),
+        ("6", "Z+", ""),
+        ("7", "Z-", "")
     ]
     
     # options and layout
