@@ -7,6 +7,22 @@ act = bpy.context.active_object
 mesh = bpy.ops.mesh
 
 #
+# helper funcs
+#
+
+# select by normal
+def select_by_normal(sel, axis)
+    # clear selection
+    mesh.select_all(action='DESELECT')
+    # pick axis
+    axis = []
+        
+    # select faces with normals aligned to this axis 
+    sel = 
+    
+    return sel 
+
+#
 # add seams
 #
 """
@@ -28,5 +44,18 @@ mesh.mark_seam(clear=False)
 
 # cube project
 mesh.select_all(action='SELECT')
-proj_size = 1.05 * max(act.dimensions)
+
+#get object dimensions and shortest axis
+size = act.dimensions
+size_min = min(dim)
+
+# tiling on shortest axis
+tile = 1
+tile_scale =tile*size_min 
+
+#select by normal (list per axis)
+polys = act.data.polygons
+
+
+proj_size = 1.05 * tile_scale
 bpy.ops.uv.cube_project(cube_size=proj_size)

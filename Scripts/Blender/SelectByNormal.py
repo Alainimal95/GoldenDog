@@ -18,6 +18,7 @@ def get_axis(dir):
     active_component = bm.select_history.active
     
     # average the selection of verts 
+    bm.verts.ensure_lookup_table()
     sel_verts = [v for v in bm.verts if v.select]
     vert_normals = [v.normal for v in sel_verts]
     avg_norm = sum(vert_normals, Vector()) / len(vert_normals)
@@ -35,25 +36,80 @@ def get_axis(dir):
     ]
     return axis_vector[dir]
 
-# select faces with matching normals
-def select_by_normal(dir, threshold, extend):
-    # TODO: add invert selection bool
+def get_connected(source, mode='VERT'):
+    """
+    mode: 'VERT', 'EDGE', or 'FACE'
+    source: one or more elements matching mode
+    Returns a set of bmesh elements of the requested type.
+    """
+    if hasattr(source, '__iter__'):
+        source = list(source)
+    else:
+        source = [source]
+
+    visited = set(source)
+    stack = list(source)
+
+    while stack:
+        elem = stack.pop()
+
+        if mode == 'VERT':
+            neighbors = [e.other_vert(elem) for e in elem.link_edges]
+
+        elif mode == 'EDGE':
+            neighbors = [e for v in elem.verts for e in v.link_edges if e is not elem]
+
+        elif mode == 'FACE':
+            neighbors = [f for e in elem.edges for f in e.link_faces if f is not elem]
+
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+        for n in neighbors:
+            if n not in visited:
+                visited.add(n)
+                stack.append(n)
+
+    return visited
+
+
+# select mesh elements with matching normals
+def select_by_normal(dir, threshold, extend, deselect, limit_selected, limit_connected):
+    # get target vector
     target_vector = get_axis(dir)
     
-    # bmesh faces of object
+    # bmesh elements of object
     act = bpy.context.active_object
     bm = bmesh.from_edit_mesh(act.data)
-    faces = bm.faces
+    elements = bm.verts
+
+    # limit to selected
+    sel = [s for s in elements if s.select == True]
     
-    # TODO: soft select the target vector
+    # limit to connected
+    connected = get_connected(sel)
+    
+    # if enabled, include components from original selection
     if not extend:
-        for f in faces:
-            f.select = 0 
-    sel = [n for n in faces if Vector.dot(n.normal, target_vector) >= threshold]
-    for s in sel:
-        s.select = 1
+        for e in elements:
+            e.select = False
     
-    # update viewport
+    # select if within threshold angle
+    matching = [m for m in elements if Vector.dot(m.normal, target_vector) >= threshold and
+        (m in sel or limit_selected == False) and
+        (m in connected or limit_connected == False)
+        ]
+    
+    # select or deselect elements matching the target vector/threshold
+    if deselect:
+        for m in matching:
+            m.select = False
+    else:
+        for m in matching:
+            m.select = True    
+    
+    # flush selection and update viewport
+    bm.select_flush_mode()
     bmesh.update_edit_mesh(act.data)
 
 def remap_value_range(value, in_min, in_max, out_min, out_max, clamp_in, clamp_out):
@@ -130,8 +186,11 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
     # options and layout
     axis: bpy.props.EnumProperty(name="Axis", items=directions)
     threshold: bpy.props.FloatProperty(name="Threshold (Cone) Angle", default=0)
-    extend: bpy.props.BoolProperty(name="Extend Selection", default=True)
-    
+    extend: bpy.props.BoolProperty(name="Extend Selection", default=False)
+    deselect: bpy.props.BoolProperty(name="Deselect", default=False)
+    limit_selected: bpy.props.BoolProperty(name="Selected Only", default=False)
+    limit_connected: bpy.props.BoolProperty(name="Connected Only", default=False)
+        
     @classmethod
     def poll(cls, context):
         return (
@@ -142,13 +201,15 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
     def execute(self, context):
         
         dir = int(self.axis)
-        extend = self.extend
         #remap threshold from 0, 180 to 1, -1  
         threshold = remap_value_range(self.threshold, 0, 180, 1, -1, True, True)
-        print(extend)
+        extend = self.extend
+        deselect = self.deselect
+        limit_selected = self.limit_selected
+        limit_connected = self.limit_connected
         
         try:
-            select_by_normal(dir, threshold, extend)
+            select_by_normal(dir, threshold, extend, deselect, limit_selected, limit_connected)
         except ValueError as e:
             self.report({'WARNING'}, str(e))
             return {'CANCELLED'}        
