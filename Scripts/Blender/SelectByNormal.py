@@ -10,22 +10,35 @@ from mathutils import Vector
 
 # get vector of target direction
 def get_axis(dir):
-    # Read the current edit mode selection -> normalized world-space vector
+    # read the current edit mode selection -> normalized world-space vector
     act = bpy.context.active_object
     bm = bmesh.from_edit_mesh(act.data)
     
-    #active component
-    active_component = bm.select_history.active
-    
     # average the selection of verts 
     bm.verts.ensure_lookup_table()
-    sel_verts = [v for v in bm.verts if v.select]
+    
+    # active component normal handling
+    active_component = bm.select_history.active
+    select_mode = bpy.context.scene.tool_settings.mesh_select_mode
+    
+    # if in edge select mode, get the verts of the selected edge(s)
+    if select_mode[1]:
+        sel_verts = [v for e in bm.edges if e.select for v in e.verts]
+    else:
+        sel_verts = [v for v in bm.verts if v.select]
+       
     vert_normals = [v.normal for v in sel_verts]
     avg_norm = sum(vert_normals, Vector()) / len(vert_normals)
     
-    #set enum property 
+    # if in edge select mode, use vert normal averages
+    if select_mode[1]: 
+        active_normal = avg_norm
+    else:
+        active_normal = active_component.normal
+    
+    # set enum property 
     axis_vector = [
-        active_component.normal,    # active
+        active_normal,    # active
         avg_norm,    # selected
         (1, 0, 0),
         (-1, 0, 0),
@@ -36,7 +49,7 @@ def get_axis(dir):
     ]
     return axis_vector[dir]
 
-def get_connected(source, mode='VERT'):
+def get_connected(source, mode):
     """
     mode: 'VERT', 'EDGE', or 'FACE'
     source: one or more elements matching mode
@@ -75,19 +88,35 @@ def get_connected(source, mode='VERT'):
 
 # select mesh elements with matching normals
 def select_by_normal(dir, threshold, extend, deselect, limit_selected, limit_connected):
+    context = bpy.context
     # get target vector
     target_vector = get_axis(dir)
-    
+
     # bmesh elements of object
-    act = bpy.context.active_object
+    act = context.active_object
     bm = bmesh.from_edit_mesh(act.data)
-    elements = bm.verts
+    mode = bm.select_mode
+    
+    # switch selection checking to correct mode 
+    if mode != {'FACE'}:
+        # ensure vert selection mode active in case of edges
+        context.tool_settings.mesh_select_mode = (True, False, False)
+        bmesh.update_edit_mesh(act.data)
+        
+        # set verts as the elements to search/select
+        elements = bm.verts
+        connect_mode = 'VERT'
+    
+    else:
+        # set faces as the elements to search/select
+        elements = bm.faces
+        connect_mode = 'Face'
 
     # limit to selected
     sel = [s for s in elements if s.select == True]
     
     # limit to connected
-    connected = get_connected(sel)
+    connected = get_connected(sel, connect_mode)
     
     # if enabled, include components from original selection
     if not extend:
@@ -108,8 +137,10 @@ def select_by_normal(dir, threshold, extend, deselect, limit_selected, limit_con
         for m in matching:
             m.select = True    
     
-    # flush selection and update viewport
+    # flush selection and update viewport - swap back to edge select mode if applicable
     bm.select_flush_mode()
+    if mode == {'EDGE'}:
+        context.tool_settings.mesh_select_mode = (False, True, False)
     bmesh.update_edit_mesh(act.data)
 
 def remap_value_range(value, in_min, in_max, out_min, out_max, clamp_in, clamp_out):
