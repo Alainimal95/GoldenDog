@@ -1,3 +1,12 @@
+bl_info = {
+    "name": "Select By Normal",
+    "author": "Hypernova",
+    "version": (1, 5, 1),
+    "blender": (5, 0, 1),
+    "location": "View3D > Edit Mesh > Select",
+    "description": "Select any mesh elements by alignment to a direction, optional limits by connectivity and selection",
+    "category": "Mesh",
+}
 # make a face selection of faces whose normals match a user defined direction
 import bpy
 import bmesh
@@ -226,13 +235,13 @@ class NRM_OT_select_by_normal(bpy.types.Operator):
     def poll(cls, context):
         return (
             bpy.context.active_object
-            #and context.mode == 'EDIT'
+            # and context.mode == 'EDIT'
         )
         
     def execute(self, context):
         
         dir = int(self.axis)
-        #remap threshold from 0, 180 to 1, -1  
+        # remap threshold from 0, 180 to 1, -1  
         threshold = remap_value_range(self.threshold, 0, 180, 1, -1, True, True)
         extend = self.extend
         deselect = self.deselect
@@ -259,38 +268,20 @@ classes = (
     NRM_OT_select_by_normal,   
 )
 
-scene = bpy.types.Scene
-
+def draw_menu(self, context):
+    layout = self.layout
+    layout.separator
+    layout.operator(NRM_OT_select_by_normal.bl_idname)
+    
 def register():
+    
     for cls in classes:
         bpy.utils.register_class(cls)
-"""
-    # user input scene props
-    
-    # create enum items
-    directions = [
-        ("X+", "X+", "", 0),
-        ("X-", "X-", "", 1),
-        ("Y+", "Y+", "", 2),
-        ("Y-", "Y-", "", 3),
-        ("Z+", "Z+", "", 4),
-        ("Z-", "Z-", "", 5)
-    ]
-    scene.axis = bpy.props.EnumProperty(items=directions)
-"""    
-    # mode selector
-"""
-    modes = [
-        ("AXIS", "Axis", "", 0),
-        ("ACTIVE", "Active", "", 1),
-        ("SELECTION", "Selection", "", 2)
-    ]
-    scene.nrm_select_mode = bpy.props.EnumProperty(items=modes)
-"""
+    bpy.types.VIEW3D_MT_select_edit_mesh.append(draw_menu)
 
 def unregister():
-    # del scene.axis
 
+    bpy.types.VIEW3D_MT_select_edit_mesh.remove(draw_menu)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
         
@@ -299,4 +290,4 @@ if __name__ == "__main__":
     register()
 
     # Test call.
-    bpy.ops.nrm.select_by_normal('INVOKE_DEFAULT')
+    # bpy.ops.nrm.select_by_normal('INVOKE_DEFAULT')
